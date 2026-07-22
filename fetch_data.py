@@ -3,69 +3,40 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 
-# 香港天文台即時天氣 API
-HKO_API = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc"
+# 使用 Open-Meteo API 獲取香港（京士柏座標 22.3119, 114.1708）的即時海平面氣壓
+OPEN_METEO_API = "https://api.open-meteo.com/v1/forecast?latitude=22.3119&longitude=114.1708&current=sea_level_pressure"
 
-def extract_pressure(data):
-    """靈活搜尋 JSON 中的氣壓數據"""
-    # 情況 1：標準 meanSeaLevelPressure 結構
-    mslp = data.get('meanSeaLevelPressure', {})
-    if isinstance(mslp, dict):
-        p_list = mslp.get('data', [])
-        if isinstance(p_list, list) and len(p_list) > 0:
-            for item in p_list:
-                if item.get('place') == '京士柏' and item.get('value'):
-                    print(f"✅ 成功從 meanSeaLevelPressure 取得京士柏氣壓: {item.get('value')} hPa")
-                    return float(item.get('value'))
-            # 若無京士柏，取第一筆
-            if p_list[0].get('value'):
-                print(f"✅ 成功取得 [{p_list[0].get('place')}] 氣壓: {p_list[0].get('value')} hPa")
-                return float(p_list[0].get('value'))
-
-    # 情況 2：部分時段直接放在主層級或站點列表中
-    if 'pressure' in data and isinstance(data['pressure'], dict):
-        p_data = data['pressure'].get('data', [])
-        if isinstance(p_data, list) and len(p_data) > 0:
-            val = p_data[0].get('value')
-            if val:
-                print(f"✅ 成功從 pressure 欄位取得氣壓: {val} hPa")
-                return float(val)
-
-    return None
-
-def get_hko_pressure():
+def get_pressure():
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(HKO_API, headers=headers, timeout=10)
-        
-        if res.status_code != 200:
-            print(f"❌ 天文台 API 回應異常，HTTP 狀態碼: {res.status_code}")
-            return None
-
-        data = res.json()
-        pressure = extract_pressure(data)
-        
-        if pressure is not None:
-            return pressure
-
-        # 如果即時 API 剛好維護中，備用方案：抓取天文台過去24小時 API
-        print("⚠️ 即時 API 暫無氣壓，嘗試切換至過去24小時備用 API...")
-        past_api = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=past24hr&lang=tc"
-        past_res = requests.get(past_api, headers=headers, timeout=10).json()
-        
-        past_data = past_res.get('past24hr', [])
-        for item in reversed(past_data): # 從最新的一筆開始找
-            if item.get('element') == 'meanSeaLevelPressure' and item.get('value'):
-                val = float(item.get('value'))
-                print(f"✅ 成功從過去24小時 API 取得最後紀錄: {val} hPa")
-                return val
-
-        print("❌ 備用 API 亦未找到氣壓數據")
-        return None
+        # 1. 優先嘗試 Open-Meteo API (全球 CDN，穩定不擋 IP)
+        res = requests.get(OPEN_METEO_API, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            p = data.get('current', {}).get('sea_level_pressure')
+            if p:
+                print(f"✅ 成功從 Open-Meteo 獲取香港海平面氣壓: {p} hPa")
+                return float(p)
 
     except Exception as e:
-        print(f"❌ 擷取數據時發生例外狀況: {e}")
-        return None
+        print(f"⚠️ Open-Meteo 擷取失敗: {e}")
+
+    # 2. 備用方案：嘗試香港天文台 API
+    try:
+        hko_url = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(hko_url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            mslp = data.get('meanSeaLevelPressure', {}).get('data', [])
+            for item in mslp:
+                if item.get('value'):
+                    val = float(item.get('value'))
+                    print(f"✅ 成功從香港天文台獲取氣壓: {val} hPa")
+                    return val
+    except Exception as e:
+        print(f"⚠️ 天文台 API 擷取失敗: {e}")
+
+    return None
 
 def save_to_firestore(pressure):
     # 從 GitHub Secrets 取得 Firebase 配置
@@ -106,7 +77,7 @@ def save_to_firestore(pressure):
         exit(1)
 
 if __name__ == "__main__":
-    p = get_hko_pressure()
+    p = get_pressure()
     if p is not None:
         save_to_firestore(p)
     else:
