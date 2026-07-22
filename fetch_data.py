@@ -6,17 +6,33 @@ from datetime import datetime, timezone, timedelta
 # 天文台 API
 HKO_API = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc"
 
+# 氣象站優先順序：京士柏 -> 橫瀾島 -> 赤鱲角
+STATION_PRIORITY = ["京士柏", "橫瀾島", "赤鱲角"]
+
 def get_hko_pressure():
     try:
         res = requests.get(HKO_API, timeout=10).json()
         pressure_data = res.get('meanSeaLevelPressure', {}).get('data', [])
         
-        # 尋找京士柏氣壓
-        for d in pressure_data:
-            if d.get('place') == "京士柏":
-                return float(d.get('value'))
+        # 1. 印出目前 API 有提供的所有站點（方便 Debug）
+        available_places = [d.get('place') for d in pressure_data]
+        print(f"ℹ️ 天文台當前提供氣壓的站點: {available_places}")
+
+        # 2. 依照優先順序尋找氣象站
+        for station in STATION_PRIORITY:
+            for d in pressure_data:
+                if d.get('place') == station and d.get('value') is not None:
+                    print(f"✅ 成功獲取 [{station}] 海平面氣壓: {d.get('value')} hPa")
+                    return float(d.get('value'))
                 
-        print("⚠️ 警告：在天文台 API 中找不到『京士柏』氣壓數據")
+        # 3. 若優先清單都找不到，取列表第一筆可用的氣壓數據
+        if pressure_data and pressure_data[0].get('value') is not None:
+            first_station = pressure_data[0].get('place')
+            val = float(pressure_data[0].get('value'))
+            print(f"⚠️ 優先站點暫無數據，改用第一個可用站點 [{first_station}]: {val} hPa")
+            return val
+
+        print("❌ 天文台 API 當前未提供任何氣壓數據")
         return None
     except Exception as e:
         print(f"❌ 擷取天文台數據失敗: {e}")
@@ -55,7 +71,7 @@ def save_to_firestore(pressure):
     
     response = requests.post(url, json=payload)
     if response.status_code == 200:
-        print(f"✅ [{time_str}] 成功寫入氣壓: {pressure} hPa 到 Firebase！")
+        print(f"🎉 [{time_str}] 成功寫入氣壓: {pressure} hPa 到 Firebase！")
     else:
         print(f"❌ 寫入 Firestore 失敗 (HTTP {response.status_code}): {response.text}")
         exit(1)
