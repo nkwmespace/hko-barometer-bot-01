@@ -3,8 +3,8 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 
-# 香港京士柏座標 (Latitude: 22.3119, Longitude: 114.1708)
-URL_OPEN_METEO = "https://api.open-meteo.com/v1/forecast?latitude=22.3119&longitude=114.1708&current=sea_level_pressure"
+# 香港京士柏座標，精確請求 pressure_msl (海平面氣壓)
+URL_OPEN_METEO = "https://api.open-meteo.com/v1/forecast?latitude=22.3119&longitude=114.1708&current=pressure_msl"
 
 def fetch_pressure():
     print("🌐 正在發送請求至 Open-Meteo API...")
@@ -15,13 +15,12 @@ def fetch_pressure():
         
         if res.status_code == 200:
             data = res.json()
-            print(f"📄 API 原始內容: {json.dumps(data)}")
-            p = data.get('current', {}).get('sea_level_pressure')
+            p = data.get('current', {}).get('pressure_msl')
             if p is not None:
-                print(f"✅ 成功擷取到氣壓值: {p} hPa")
+                print(f"✅ 成功擷取到香港海平面氣壓: {p} hPa")
                 return float(p)
             else:
-                print("❌ JSON 結構中未找到 sea_level_pressure 欄位")
+                print("❌ JSON 結構中未找到 pressure_msl 欄位")
         else:
             print(f"❌ API 請求失敗，內容: {res.text[:200]}")
     except Exception as e:
