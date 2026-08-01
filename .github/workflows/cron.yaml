@@ -1,19 +1,25 @@
 name: HKO Pressure Collector
 
 on:
+  # 1. 支援來自 cron-job.org 的外部 Webhook 觸發
+  repository_dispatch:
+    types: [trigger-fetch]
+
+  # 2. 保留原生的 GitHub schedule (當作雙重保險)
   schedule:
-    # 每 15 分鐘自動執行一次 (UTC 時間)
     - cron: '*/15 * * * *'
-  workflow_dispatch: # 支援手動觸發
+
+  # 3. 保留手動觸發按鈕
+  workflow_dispatch:
 
 jobs:
   collect:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
           
