@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SB-42 WMO Professional Barometer</title>
+  <title>SB-42 WMO Barometer</title>
   
   <!-- Chart.js & Firebase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -25,7 +25,7 @@
     
     .barometer-card {
       width: 100%;
-      max-width: 460px;
+      max-width: 440px;
       background: #fcfcf9;
       border: 3.5px solid #1a1a1a;
       border-radius: 12px;
@@ -68,7 +68,6 @@
     .pressure-value { font-size: 3.2rem; font-weight: 900; line-height: 1; }
     .unit { font-size: 1.1rem; font-weight: normal; }
 
-    /* WMO 氣壓趨勢卡片 */
     .wmo-card {
       border: 2px solid #1a1a1a;
       border-radius: 6px;
@@ -94,7 +93,6 @@
       font-weight: bold;
     }
 
-    /* 圖表區 */
     .chart-container {
       position: relative;
       width: 100%;
@@ -106,7 +104,6 @@
       margin-bottom: 12px;
     }
 
-    /* 天氣預估矩陣表 */
     .matrix-title {
       font-size: 0.8rem;
       font-weight: 900;
@@ -239,7 +236,7 @@
 </div>
 
 <script>
-  // 📍 1. 貼上你的 Firebase Config (請確保資料正確)
+  // 📍 1. 貼上你的 Firebase Config
   const firebaseConfig = {
   apiKey: "AIzaSyDQcBiD_v-ka5fGwU_8aEDgI6DF5rj1Lmo",
   authDomain: "hko-barometer.firebaseapp.com",
@@ -255,7 +252,6 @@
   let currentMode = '84h';
   let cachedDocs = [];
 
-  // 初始化 Firebase 與 Chart.js
   function initApp() {
     try {
       if (!firebase.apps.length) {
@@ -289,7 +285,6 @@
         }
       });
 
-      // 開始讀取資料
       loadData();
       setInterval(loadData, 5 * 60 * 1000);
 
@@ -298,7 +293,6 @@
     }
   }
 
-  // WMO Code 0-8 邏輯
   function calculateWMOCode(p0, p1_5, p3) {
     const diffTotal = p0 - p3;
     const diffFirstHalf = p1_5 - p3;
@@ -322,12 +316,10 @@
     }
   }
 
-  // 載入數據 (已優化查詢：僅用 orderBy，無須建立 Composite Index)
   async function loadData() {
     try {
       document.getElementById('status-note').innerText = "LOADING DATA...";
       
-      // 取出最新的 350 筆紀錄（約 3.5 天的資料）
       const snapshot = await db.collection('barometer_history')
         .orderBy('timestamp', 'desc')
         .limit(350)
@@ -335,8 +327,6 @@
 
       cachedDocs = [];
       snapshot.forEach(doc => cachedDocs.push(doc.data()));
-      
-      // 轉回時間正序 (舊 -> 新)
       cachedDocs.reverse();
 
       if (cachedDocs.length > 0) {
@@ -353,14 +343,12 @@
         const sign = diff3h > 0 ? "+" : "";
         document.getElementById('trend-3h').innerText = `${sign}${diff3h} hPa`;
 
-        // 計算 WMO
         const wmoResult = calculateWMOCode(latestP, p1_5hAgo, p3hAgo);
         document.getElementById('wmo-icon').innerText = wmoResult.symbol;
         document.getElementById('wmo-code-str').innerText = `Code ${wmoResult.code}`;
         document.getElementById('wmo-desc-1').innerText = wmoResult.title;
         document.getElementById('wmo-desc-2').innerText = wmoResult.desc;
 
-        // 高亮對照表
         const dropVal = parseFloat(diff3h);
         document.getElementById('row-yellow').classList.remove('active-alert');
         document.getElementById('row-orange').classList.remove('active-alert');
@@ -382,7 +370,6 @@
 
     } catch (err) {
       console.error(err);
-      // 如果有任何錯誤，直接將詳細訊息顯示在最下方
       document.getElementById('status-note').innerText = "ERROR: " + err.message;
     }
   }
@@ -457,7 +444,6 @@
     renderChart();
   }
 
-  // 確保 DOM 載入後才初始化
   window.addEventListener('DOMContentLoaded', initApp);
 </script>
 
