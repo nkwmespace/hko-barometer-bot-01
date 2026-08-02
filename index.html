@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SB-42 Dual-Mode Barometer</title>
+  <title>SB-42 WMO Professional Barometer</title>
   
+  <!-- Chart.js & Firebase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -16,7 +17,7 @@
       font-family: 'Courier New', Courier, monospace, system-ui;
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
       min-height: 100vh;
       margin: 0;
       padding: 15px;
@@ -24,7 +25,7 @@
     
     .barometer-card {
       width: 100%;
-      max-width: 450px;
+      max-width: 460px;
       background: #fcfcf9;
       border: 3.5px solid #1a1a1a;
       border-radius: 12px;
@@ -39,16 +40,12 @@
       align-items: center;
       border-bottom: 2.5px solid #1a1a1a;
       padding-bottom: 8px;
-      margin-bottom: 15px;
+      margin-bottom: 12px;
     }
 
     .header h1 { font-size: 1.15rem; font-weight: 900; margin: 0; letter-spacing: 1.5px; }
 
-    /* 模式切換按鈕組 (SB-42 風格) */
-    .mode-switch {
-      display: flex;
-      gap: 6px;
-    }
+    .mode-switch { display: flex; gap: 6px; }
     .mode-btn {
       background: #f0f0eb;
       border: 2px solid #1a1a1a;
@@ -59,14 +56,413 @@
       font-weight: bold;
       cursor: pointer;
     }
-    .mode-btn.active {
-      background: #1a1a1a;
-      color: #fcfcf9;
-    }
+    .mode-btn.active { background: #1a1a1a; color: #fcfcf9; }
 
     .main-metrics {
       display: flex;
       justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .pressure-value { font-size: 3.2rem; font-weight: 900; line-height: 1; }
+    .unit { font-size: 1.1rem; font-weight: normal; }
+
+    /* WMO 氣壓趨勢卡片 */
+    .wmo-card {
+      border: 2px solid #1a1a1a;
+      border-radius: 6px;
+      background: #f0f0eb;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      box-shadow: 2px 2px 0px #1a1a1a;
+    }
+
+    .wmo-symbol {
+      font-size: 1.8rem;
+      font-weight: 900;
+      line-height: 1;
+      padding: 0 6px;
+    }
+
+    .wmo-info {
+      text-align: right;
+      font-size: 0.75rem;
+      font-weight: bold;
+    }
+
+    /* 圖表區 */
+    .chart-container {
+      position: relative;
+      width: 100%;
+      height: 200px;
+      border: 2px solid #1a1a1a;
+      border-radius: 6px;
+      padding: 6px;
+      background: #ffffff;
+      margin-bottom: 12px;
+    }
+
+    /* 天氣預估矩陣表 */
+    .matrix-title {
+      font-size: 0.8rem;
+      font-weight: 900;
+      text-align: center;
+      background: #1a1a1a;
+      color: #fcfcf9;
+      padding: 3px;
+      border-radius: 4px 4px 0 0;
+      letter-spacing: 1px;
+    }
+
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #1a1a1a;
+      font-size: 0.7rem;
+      background: #fff;
+    }
+
+    .matrix-table th {
+      background: #f0f0eb;
+      border: 1px solid #1a1a1a;
+      padding: 4px 2px;
+      text-align: center;
+      font-weight: 900;
+    }
+
+    .matrix-table td {
+      border: 1px solid #1a1a1a;
+      padding: 5px 3px;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .matrix-table tr.active-alert {
+      background-color: #1a1a1a !important;
+      color: #ffffff !important;
+      font-weight: bold;
+    }
+
+    .footer-note {
+      text-align: center;
+      font-size: 0.72rem;
+      color: #555;
+      margin-top: 10px;
+      font-weight: 600;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+<div class="barometer-card">
+  <!-- 標頭 -->
+  <div class="header">
+    <h1>SB-42 BARO</h1>
+    <div class="mode-switch">
+      <button id="btn-84h" class="mode-btn active" onclick="switchMode('84h')">84H 折線</button>
+      <button id="btn-dp" class="mode-btn" onclick="switchMode('dp')">24H ΔP</button>
+    </div>
+  </div>
+
+  <!-- 主氣壓讀數 -->
+  <div class="main-metrics">
+    <div class="pressure-value">
+      <span id="curr-p">---.-</span><span class="unit">hPa</span>
+    </div>
+    <div style="text-align: right;">
+      <div style="font-size: 0.75rem; font-weight: bold;">3H ΔP 變率</div>
+      <div id="trend-3h" style="font-size: 1.5rem; font-weight: 900;">--- hPa</div>
+    </div>
+  </div>
+
+  <!-- WMO 3小時氣壓趨勢符號卡片 -->
+  <div class="wmo-card">
+    <div style="display: flex; align-items: center;">
+      <div id="wmo-icon" class="wmo-symbol">─</div>
+      <div>
+        <div style="font-size: 0.7rem; color: #555;">WMO CODE</div>
+        <div id="wmo-code-str" style="font-size: 0.9rem; font-weight: 900;">Code -</div>
+      </div>
+    </div>
+    <div class="wmo-info">
+      <div id="wmo-desc-1">分析中...</div>
+      <div id="wmo-desc-2" style="font-size: 0.68rem; color: #444;">---</div>
+    </div>
+  </div>
+
+  <!-- 圖表區域 -->
+  <div class="chart-container">
+    <canvas id="pressureChart"></canvas>
+  </div>
+
+  <!-- 雨勢預測矩陣 -->
+  <div class="matrix-title">📊 3H 氣壓跌幅 (ΔP) 天氣預測矩陣</div>
+  <table class="matrix-table">
+    <thead>
+      <tr>
+        <th style="width: 26%;">3H 跌幅</th>
+        <th style="width: 22%;">預警等級</th>
+        <th style="width: 26%;">下雨概率</th>
+        <th style="width: 26%;">雨勢與影響</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr id="row-yellow">
+        <td><b>-0.5 ~ -1.5</b></td>
+        <td>⚠️ 黃色預警</td>
+        <td>天氣不穩 (80%)</td>
+        <td>一般驟雨/陰雨<br><span style="font-size:0.6rem;">出門建議帶傘</span></td>
+      </tr>
+      <tr id="row-orange">
+        <td><b>-1.5 ~ -3.0</b></td>
+        <td>🚨 橙色大雨</td>
+        <td>強低壓逼近 (95%)</td>
+        <td>大雨、狂風雷暴<br><span style="font-size:0.6rem;">3~5小時內抵達</span></td>
+      </tr>
+      <tr id="row-red">
+        <td><b>急跌 > -3.0</b></td>
+        <td>🌪️ 紅色極端</td>
+        <td>颱風/強對流 (100%)</td>
+        <td>狂風特大暴雨<br><span style="font-size:0.6rem;">即時入室避風雨</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer-note" id="status-note">
+    CONNECTING TO FIREBASE...
+  </div>
+</div>
+
+<script>
+  // 📍 1. 貼上你的 Firebase Config (請確保資料正確)
+  const firebaseConfig = {
+  apiKey: "AIzaSyDQcBiD_v-ka5fGwU_8aEDgI6DF5rj1Lmo",
+  authDomain: "hko-barometer.firebaseapp.com",
+  projectId: "hko-barometer",
+  storageBucket: "hko-barometer.firebasestorage.app",
+  messagingSenderId: "473068559882",
+  appId: "1:473068559882:web:1c8096e98ad2b4ccd4c9f3",
+  measurementId: "G-7B9VNBW9K6"
+  };
+
+  let db = null;
+  let chart = null;
+  let currentMode = '84h';
+  let cachedDocs = [];
+
+  // 初始化 Firebase 與 Chart.js
+  function initApp() {
+    try {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+      db = firebase.firestore();
+
+      const ctx = document.getElementById('pressureChart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: '海平面氣壓 (hPa)',
+            data: [],
+            borderColor: '#1a1a1a',
+            borderWidth: 2,
+            pointRadius: 1,
+            fill: false,
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { font: { family: 'Courier New', size: 10 } }, grid: { display: false } },
+            y: { ticks: { font: { family: 'Courier New', size: 10 } }, grid: { color: '#e5e5df' } }
+          }
+        }
+      });
+
+      // 開始讀取資料
+      loadData();
+      setInterval(loadData, 5 * 60 * 1000);
+
+    } catch (e) {
+      document.getElementById('status-note').innerText = "INIT ERROR: " + e.message;
+    }
+  }
+
+  // WMO Code 0-8 邏輯
+  function calculateWMOCode(p0, p1_5, p3) {
+    const diffTotal = p0 - p3;
+    const diffFirstHalf = p1_5 - p3;
+    const diffSecondHalf = p0 - p1_5;
+    const threshold = 0.2;
+
+    if (Math.abs(diffTotal) < threshold && Math.abs(diffFirstHalf) < threshold && Math.abs(diffSecondHalf) < threshold) {
+      return { code: 4, symbol: '─', title: 'Code 4: Steady', desc: 'Pressure steady' };
+    }
+
+    if (diffTotal >= 0) {
+      if (diffFirstHalf > threshold && diffSecondHalf < -threshold) return { code: 0, symbol: '⎴', title: 'Code 0: Inc then Dec', desc: 'Higher/Same than 3h ago' };
+      if (diffFirstHalf > threshold && Math.abs(diffSecondHalf) <= threshold) return { code: 1, symbol: '╱─', title: 'Code 1: Inc then Steady', desc: 'Higher than 3h ago' };
+      if (diffFirstHalf >= -threshold && diffSecondHalf > threshold) return { code: 2, symbol: '╱', title: 'Code 2: Increasing', desc: 'Higher than 3h ago' };
+      return { code: 3, symbol: '╲╱', title: 'Code 3: Dec then Inc', desc: 'Higher than 3h ago' };
+    } else {
+      if (diffFirstHalf < -threshold && diffSecondHalf > threshold) return { code: 5, symbol: '⎵', title: 'Code 5: Dec then Inc', desc: 'Lower/Same than 3h ago' };
+      if (diffFirstHalf < -threshold && Math.abs(diffSecondHalf) <= threshold) return { code: 6, symbol: '╲─', title: 'Code 6: Dec then Steady', desc: 'Lower than 3h ago' };
+      if (diffFirstHalf <= threshold && diffSecondHalf < -threshold) return { code: 7, symbol: '╲', title: 'Code 7: Decreasing', desc: 'Lower than 3h ago (Steady Drop)' };
+      return { code: 8, symbol: '╱╲', title: 'Code 8: Inc then Rapid Dec', desc: 'Lower than 3h ago (Storm Risk)' };
+    }
+  }
+
+  // 載入數據 (已優化查詢：僅用 orderBy，無須建立 Composite Index)
+  async function loadData() {
+    try {
+      document.getElementById('status-note').innerText = "LOADING DATA...";
+      
+      // 取出最新的 350 筆紀錄（約 3.5 天的資料）
+      const snapshot = await db.collection('barometer_history')
+        .orderBy('timestamp', 'desc')
+        .limit(350)
+        .get();
+
+      cachedDocs = [];
+      snapshot.forEach(doc => cachedDocs.push(doc.data()));
+      
+      // 轉回時間正序 (舊 -> 新)
+      cachedDocs.reverse();
+
+      if (cachedDocs.length > 0) {
+        const latestP = cachedDocs[cachedDocs.length - 1].pressure;
+        document.getElementById('curr-p').innerText = Number(latestP).toFixed(1);
+
+        const sampleGap3h = Math.min(12, cachedDocs.length - 1);
+        const sampleGap1_5h = Math.min(6, cachedDocs.length - 1);
+
+        const p3hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap3h].pressure;
+        const p1_5hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap1_5h].pressure;
+
+        const diff3h = (latestP - p3hAgo).toFixed(1);
+        const sign = diff3h > 0 ? "+" : "";
+        document.getElementById('trend-3h').innerText = `${sign}${diff3h} hPa`;
+
+        // 計算 WMO
+        const wmoResult = calculateWMOCode(latestP, p1_5hAgo, p3hAgo);
+        document.getElementById('wmo-icon').innerText = wmoResult.symbol;
+        document.getElementById('wmo-code-str').innerText = `Code ${wmoResult.code}`;
+        document.getElementById('wmo-desc-1').innerText = wmoResult.title;
+        document.getElementById('wmo-desc-2').innerText = wmoResult.desc;
+
+        // 高亮對照表
+        const dropVal = parseFloat(diff3h);
+        document.getElementById('row-yellow').classList.remove('active-alert');
+        document.getElementById('row-orange').classList.remove('active-alert');
+        document.getElementById('row-red').classList.remove('active-alert');
+
+        if (dropVal <= -3.0) {
+          document.getElementById('row-red').classList.add('active-alert');
+        } else if (dropVal <= -1.5) {
+          document.getElementById('row-orange').classList.add('active-alert');
+        } else if (dropVal <= -0.5) {
+          document.getElementById('row-yellow').classList.add('active-alert');
+        }
+
+        renderChart();
+        document.getElementById('status-note').innerText = `SYNCED WITH FIREBASE (${cachedDocs.length} RECS)`;
+      } else {
+        document.getElementById('status-note').innerText = "NO DATA FOUND IN FIREBASE COLLECTION";
+      }
+
+    } catch (err) {
+      console.error(err);
+      // 如果有任何錯誤，直接將詳細訊息顯示在最下方
+      document.getElementById('status-note').innerText = "ERROR: " + err.message;
+    }
+  }
+
+  function renderChart() {
+    if (!chart || cachedDocs.length === 0) return;
+
+    if (currentMode === '84h') {
+      chart.config.type = 'line';
+      chart.data.labels = cachedDocs.map(d => d.timeStr || '');
+      chart.data.datasets[0] = {
+        label: '海平面氣壓 (hPa)',
+        data: cachedDocs.map(d => d.pressure),
+        borderColor: '#1a1a1a',
+        borderWidth: 2,
+        pointRadius: 1,
+        fill: false,
+        tension: 0.1
+      };
+      chart.options.scales.x.ticks.maxTicksLimit = 6;
+      chart.options.scales.y.position = 'left';
+      chart.options.scales.y.suggestedMin = undefined;
+      chart.options.scales.y.suggestedMax = undefined;
+    } else {
+      chart.config.type = 'bar';
+      const latestP = cachedDocs[cachedDocs.length - 1].pressure;
+      const timeCheckpoints = [-24, -12, -6, -3, -1, 0];
+      const trendData = [0, 0, 0, 0, 0, 0];
+
+      for (let i = 0; i < timeCheckpoints.length; i++) {
+        const hoursAgo = timeCheckpoints[i];
+        const targetTime = Date.now() + (hoursAgo * 60 * 60 * 1000);
+
+        let closestIndex = -1;
+        let minDiff = Infinity;
+
+        for (let j = 0; j < cachedDocs.length; j++) {
+          const diff = Math.abs(cachedDocs[j].timestamp - targetTime);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestIndex = j;
+          }
+        }
+
+        if (closestIndex !== -1 && minDiff < (45 * 60 * 1000)) {
+          trendData[i] = (cachedDocs[closestIndex].pressure - latestP).toFixed(1);
+        }
+      }
+
+      chart.data.labels = ['-24H', '-12H', '-6H', '-3H', '-1H', '0H'];
+      chart.data.datasets[0] = {
+        label: 'ΔP (hPa)',
+        data: trendData,
+        backgroundColor: '#1a1a1a',
+        borderColor: '#1a1a1a',
+        borderWidth: 1,
+        barPercentage: 0.45
+      };
+      chart.options.scales.x.ticks.maxTicksLimit = 6;
+      chart.options.scales.y.position = 'right';
+      chart.options.scales.y.suggestedMin = -8;
+      chart.options.scales.y.suggestedMax = 8;
+    }
+
+    chart.update();
+  }
+
+  function switchMode(mode) {
+    currentMode = mode;
+    document.getElementById('btn-84h').className = `mode-btn ${mode === '84h' ? 'active' : ''}`;
+    document.getElementById('btn-dp').className = `mode-btn ${mode === 'dp' ? 'active' : ''}`;
+    renderChart();
+  }
+
+  // 確保 DOM 載入後才初始化
+  window.addEventListener('DOMContentLoaded', initApp);
+</script>
+
+</body>
+</html>      justify-content: space-between;
       align-items: center;
       margin-bottom: 15px;
     }
