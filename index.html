@@ -3,12 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>雲端數位電子紙氣壓計 (84小時)</title>
+  <title>SB-42 Dual-Mode Barometer</title>
   
-  <!-- 1. 引入 Chart.js 畫圖庫 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  
-  <!-- 2. 引入 Firebase v9 兼容版 SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
@@ -25,35 +22,46 @@
       padding: 15px;
     }
     
-    /* 模仿 Steamrock SB-42 復古電子紙卡片風格 */
     .barometer-card {
       width: 100%;
       max-width: 450px;
       background: #fcfcf9;
-      border: 3px solid #1a1a1a;
+      border: 3.5px solid #1a1a1a;
       border-radius: 12px;
-      padding: 24px;
-      box-shadow: 6px 6px 0px #1a1a1a;
+      padding: 20px;
+      box-shadow: 7px 7px 0px #1a1a1a;
       color: #1a1a1a;
     }
 
     .header {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
-      border-bottom: 2px solid #1a1a1a;
+      align-items: center;
+      border-bottom: 2.5px solid #1a1a1a;
       padding-bottom: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 15px;
     }
 
-    .header h1 { font-size: 1.2rem; margin: 0; letter-spacing: 1.5px; }
-    .station-name {
-      font-weight: bold;
-      font-size: 0.85rem;
-      background: #1a1a1a;
-      color: #fff;
-      padding: 2px 8px;
+    .header h1 { font-size: 1.15rem; font-weight: 900; margin: 0; letter-spacing: 1.5px; }
+
+    /* 模式切換按鈕組 (SB-42 風格) */
+    .mode-switch {
+      display: flex;
+      gap: 6px;
+    }
+    .mode-btn {
+      background: #f0f0eb;
+      border: 2px solid #1a1a1a;
       border-radius: 4px;
+      padding: 3px 8px;
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .mode-btn.active {
+      background: #1a1a1a;
+      color: #fcfcf9;
     }
 
     .main-metrics {
@@ -63,25 +71,25 @@
       margin-bottom: 15px;
     }
 
-    .pressure-value { font-size: 2.8rem; font-weight: 800; line-height: 1; }
+    .pressure-value { font-size: 3.2rem; font-weight: 900; line-height: 1; }
     .unit { font-size: 1.1rem; font-weight: normal; }
 
     .trend-badge {
       text-align: right;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: bold;
       background: #f0f0eb;
-      padding: 8px 12px;
-      border: 1.5px solid #1a1a1a;
+      padding: 6px 10px;
+      border: 2px solid #1a1a1a;
       border-radius: 6px;
+      box-shadow: 2px 2px 0px #1a1a1a;
     }
 
-    /* 氣壓急降警告橫幅 */
     .warning-banner {
       display: none;
       background: #1a1a1a;
-      color: #fff;
-      padding: 8px 12px;
+      color: #fcfcf9;
+      padding: 8px;
       border-radius: 6px;
       font-weight: bold;
       font-size: 0.85rem;
@@ -89,22 +97,22 @@
       text-align: center;
     }
 
-    /* 圖表容器 */
     .chart-container {
       position: relative;
       width: 100%;
-      height: 220px;
-      border: 1.5px solid #1a1a1a;
+      height: 230px;
+      border: 2px solid #1a1a1a;
       border-radius: 6px;
       padding: 8px;
-      background: #fff;
+      background: #ffffff;
     }
 
     .footer-note {
       text-align: center;
       font-size: 0.75rem;
-      color: #666;
-      margin-top: 15px;
+      color: #555;
+      margin-top: 12px;
+      font-weight: 600;
     }
   </style>
 </head>
@@ -112,22 +120,26 @@
 
 <div class="barometer-card">
   <div class="header">
-    <h1>BAROMETER</h1>
-    <span class="station-name">雲端 84H 同步</span>
+    <h1>SB-42 BARO</h1>
+    <!-- 視圖切換按鈕 -->
+    <div class="mode-switch">
+      <button id="btn-84h" class="mode-btn active" onclick="switchMode('84h')">84H 折線</button>
+      <button id="btn-dp" class="mode-btn" onclick="switchMode('dp')">24H ΔP</button>
+    </div>
   </div>
 
   <div class="main-metrics">
     <div class="pressure-value">
-      <span id="curr-p">---.-</span> <span class="unit">hPa</span>
+      <span id="curr-p">---.-</span><span class="unit">hPa</span>
     </div>
     <div class="trend-badge">
-      <div>3h 變率</div>
-      <div id="trend-3h" style="font-size: 1.2rem;">--- hPa</div>
+      <div>3H ΔP 變率</div>
+      <div id="trend-3h" style="font-size: 1.2rem; font-weight: 900;">--- hPa</div>
     </div>
   </div>
 
   <div id="warning-banner" class="warning-banner">
-    ⚠️ 警告：3小時內氣壓驟降！防範強風/雷暴
+    ⚠️ ALERT: RAPID PRESSURE DROP (STORMY)
   </div>
 
   <div class="chart-container">
@@ -135,14 +147,12 @@
   </div>
 
   <div class="footer-note" id="status-note">
-    正在從 Firebase 載入雲端數據...
+    CONNECTING TO FIREBASE...
   </div>
 </div>
 
 <script>
-  // ==========================================
-  // 📍 1. 貼上你的 Firebase 配置
-  // ==========================================
+  // 📍 1. 貼上你的 Firebase Config
   const firebaseConfig = {
   apiKey: "AIzaSyDQcBiD_v-ka5fGwU_8aEDgI6DF5rj1Lmo",
   authDomain: "hko-barometer.firebaseapp.com",
@@ -153,13 +163,13 @@
   measurementId: "G-7B9VNBW9K6"
   };
 
-  // 初始化 Firebase
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
-  // ==========================================
-  // 📍 2. 初始化 Chart.js 復古電子紙風格圖表
-  // ==========================================
+  let currentMode = '84h'; // 預設模式：原本的 84 小時折線圖
+  let cachedDocs = [];    // 快取資料庫數據
+
+  // 📍 2. 初始化 Chart.js 圖表 (預設為原本的 84H 折線圖)
   const ctx = document.getElementById('pressureChart').getContext('2d');
   const chart = new Chart(ctx, {
     type: 'line',
@@ -171,7 +181,6 @@
         borderColor: '#1a1a1a',
         borderWidth: 2,
         pointRadius: 1,
-        pointBackgroundColor: '#1a1a1a',
         fill: false,
         tension: 0.1
       }]
@@ -182,82 +191,137 @@
       plugins: { legend: { display: false } },
       scales: {
         x: {
-          display: true,
-          ticks: { maxTicksLimit: 6, font: { family: 'Courier New', size: 10 } },
+          ticks: { font: { family: 'Courier New', size: 10 } },
           grid: { display: false }
         },
         y: {
-          display: true,
           ticks: { font: { family: 'Courier New', size: 10 } },
-          grid: { color: '#e5e5e0' }
+          grid: { color: '#e5e5df' }
         }
       }
     }
   });
 
-  // ==========================================
-  // 📍 3. 從 Firebase 查詢 84 小時內的數據
-  // ==========================================
-  async function loadFirebaseData() {
+  // 📍 3. 讀取 Firebase 並渲染數據
+  async function loadData() {
     try {
-      // 計算 84 小時 (3.5 天) 前的時間戳記
+      // 讀取 84 小時內的歷史數據
       const eightyFourHoursAgo = Date.now() - (84 * 60 * 60 * 1000);
-
-      // 查詢資料庫：只拉取 84 小時內的紀錄，並按時間順序排列
       const snapshot = await db.collection('barometer_history')
         .where('timestamp', '>=', eightyFourHoursAgo)
         .orderBy('timestamp', 'asc')
         .get();
 
-      const labels = [];
-      const values = [];
-      let latestPressure = 0;
+      cachedDocs = [];
+      snapshot.forEach(doc => cachedDocs.push(doc.data()));
 
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        labels.push(data.timeStr);
-        values.push(data.pressure);
-        latestPressure = data.pressure;
-      });
+      if (cachedDocs.length > 0) {
+        const latestP = cachedDocs[cachedDocs.length - 1].pressure;
+        document.getElementById('curr-p').innerText = latestP.toFixed(1);
 
-      if (values.length > 0) {
-        // 更新當前氣壓
-        document.getElementById('curr-p').innerText = latestPressure.toFixed(1);
+        // 計算 3小時變率
+        const sampleGap = Math.min(12, cachedDocs.length - 1);
+        const p3hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap].pressure;
+        const diff3h = (latestP - p3hAgo).toFixed(1);
+        const sign = diff3h > 0 ? "+" : "";
+        document.getElementById('trend-3h').innerText = `${sign}${diff3h} hPa`;
 
-        // 計算 3 小時變率 (大約是 12 筆資料前，假設每15分鐘一筆)
-        const sampleGap = Math.min(12, values.length - 1);
-        const p3hAgo = values[values.length - 1 - sampleGap];
-        const diff = (latestPressure - p3hAgo).toFixed(1);
-        
-        const sign = diff > 0 ? "+" : "";
-        document.getElementById('trend-3h').innerText = `${sign}${diff} hPa`;
-
-        // 急降警告邏輯 (3小時內下降 >= 2.0 hPa)
-        if (diff <= -2.0) {
+        // 警示觸發
+        if (parseFloat(diff3h) <= -2.0) {
           document.getElementById('warning-banner').style.display = 'block';
         } else {
           document.getElementById('warning-banner').style.display = 'none';
         }
 
-        // 更新 Chart.js 圖表
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = values;
-        chart.update();
-
-        document.getElementById('status-note').innerText = `數據即時同步中 (已累積 ${values.length} 筆紀錄)`;
+        // 渲染圖表
+        renderChart();
+        document.getElementById('status-note').innerText = `SYNCED WITH FIREBASE (${cachedDocs.length} RECS)`;
       } else {
-        document.getElementById('status-note').innerText = "資料庫暫無 84 小時內的數據，請等待機器人擷取...";
+        document.getElementById('status-note').innerText = "NO DATA IN LAST 84H...";
       }
 
     } catch (err) {
-      console.error("載入 Firebase 數據失敗:", err);
-      document.getElementById('status-note').innerText = "連線資料庫失敗，請檢查 Config 配置或 Firestore 規則。";
+      console.error(err);
+      document.getElementById('status-note').innerText = "CONNECTION ERROR";
     }
   }
 
-  // 網頁開啟時自動載入，並每 5 分鐘自動刷新一次
-  loadFirebaseData();
-  setInterval(loadFirebaseData, 5 * 60 * 1000);
+  // 📍 4. 根據當前模式切換圖表渲染邏輯
+  function renderChart() {
+    if (cachedDocs.length === 0) return;
+
+    if (currentMode === '84h') {
+      // === 模式 1：原本的 84 小時折線圖 ===
+      chart.config.type = 'line';
+      chart.data.labels = cachedDocs.map(d => d.timeStr);
+      chart.data.datasets[0] = {
+        label: '海平面氣壓 (hPa)',
+        data: cachedDocs.map(d => d.pressure),
+        borderColor: '#1a1a1a',
+        borderWidth: 2,
+        pointRadius: 1,
+        fill: false,
+        tension: 0.1
+      };
+      chart.options.scales.x.ticks.maxTicksLimit = 6;
+      chart.options.scales.y.position = 'left';
+      chart.options.scales.y.suggestedMin = undefined;
+      chart.options.scales.y.suggestedMax = undefined;
+    } else {
+      // === 模式 2：Traceable 風格 24H 分段 ΔP 柱狀圖 ===
+      chart.config.type = 'bar';
+      const latestP = cachedDocs[cachedDocs.length - 1].pressure;
+      const timeCheckpoints = [-24, -12, -6, -3, -1, 0];
+      const trendData = [0, 0, 0, 0, 0, 0];
+
+      for (let i = 0; i < timeCheckpoints.length; i++) {
+        const hoursAgo = timeCheckpoints[i];
+        const targetTime = Date.now() + (hoursAgo * 60 * 60 * 1000);
+
+        let closestIndex = -1;
+        let minDiff = Infinity;
+
+        for (let j = 0; j < cachedDocs.length; j++) {
+          const diff = Math.abs(cachedDocs[j].timestamp - targetTime);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestIndex = j;
+          }
+        }
+
+        if (closestIndex !== -1 && minDiff < (45 * 60 * 1000)) {
+          trendData[i] = (cachedDocs[closestIndex].pressure - latestP).toFixed(1);
+        }
+      }
+
+      chart.data.labels = ['-24H', '-12H', '-6H', '-3H', '-1H', '0H'];
+      chart.data.datasets[0] = {
+        label: 'ΔP (hPa)',
+        data: trendData,
+        backgroundColor: '#1a1a1a',
+        borderColor: '#1a1a1a',
+        borderWidth: 1,
+        barPercentage: 0.45
+      };
+      chart.options.scales.x.ticks.maxTicksLimit = 6;
+      chart.options.scales.y.position = 'right';
+      chart.options.scales.y.suggestedMin = -8;
+      chart.options.scales.y.suggestedMax = 8;
+    }
+
+    chart.update();
+  }
+
+  // 切換模式按鈕點擊處置
+  function switchMode(mode) {
+    currentMode = mode;
+    document.getElementById('btn-84h').className = `mode-btn ${mode === '84h' ? 'active' : ''}`;
+    document.getElementById('btn-dp').className = `mode-btn ${mode === 'dp' ? 'active' : ''}`;
+    renderChart();
+  }
+
+  loadData();
+  setInterval(loadData, 5 * 60 * 1000);
 </script>
 
 </body>
