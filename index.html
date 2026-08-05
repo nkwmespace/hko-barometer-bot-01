@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SB-42 WMO Barometer</title>
+  <title>SB-42 Smart Weather Station</title>
   
   <!-- Chart.js & Firebase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -25,7 +25,7 @@
     
     .barometer-card {
       width: 100%;
-      max-width: 440px;
+      max-width: 460px;
       background: #fcfcf9;
       border: 3.5px solid #1a1a1a;
       border-radius: 12px;
@@ -68,6 +68,35 @@
     .pressure-value { font-size: 3.2rem; font-weight: 900; line-height: 1; }
     .unit { font-size: 1.1rem; font-weight: normal; }
 
+    /* 新增：智能預測卡片 */
+    .prediction-card {
+      border: 2.5px solid #1a1a1a;
+      border-radius: 6px;
+      background: #1a1a1a;
+      color: #fcfcf9;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      box-shadow: 3px 3px 0px #888;
+    }
+
+    .pred-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      font-weight: bold;
+      border-bottom: 1px dashed #777;
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+    }
+
+    .pred-body {
+      font-size: 0.88rem;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      line-height: 1.3;
+    }
+
+    /* WMO 氣壓趨勢卡片 */
     .wmo-card {
       border: 2px solid #1a1a1a;
       border-radius: 6px;
@@ -177,7 +206,18 @@
     </div>
   </div>
 
-  <!-- WMO 3小時氣壓趨勢符號卡片 -->
+  <!-- 🤖 新增：Zambretti & 演算法智能預測卡片 -->
+  <div class="prediction-card">
+    <div class="pred-header">
+      <span>🤖 SMART PREDICTION</span>
+      <span id="z-index-val">Z-INDEX: --</span>
+    </div>
+    <div id="pred-text" class="pred-body">
+      CALCULATING WEATHER MODEL...
+    </div>
+  </div>
+
+  <!-- WMO 3小時氣壓趨勢卡片 -->
   <div class="wmo-card">
     <div style="display: flex; align-items: center;">
       <div id="wmo-icon" class="wmo-symbol">─</div>
@@ -293,6 +333,39 @@
     }
   }
 
+  // 📍 2. 氣壓演算法：Zambretti 指數 & 倒數時間公式
+  function runPredictionModel(currentP, diff3h) {
+    // Zambretti Formula (Z = 130 - 0.12*P - 15*ΔP)
+    const zIndex = (130 - (0.12 * currentP) - (15 * diff3h)).toFixed(1);
+    
+    let rainProb = 0;
+    let hoursToRain = 0;
+    let statusText = "";
+
+    if (diff3h <= -3.0) {
+      rainProb = 100;
+      hoursToRain = 1.5;
+      statusText = `🌪️ 降雨率 ${rainProb}% | 強對流/特大暴雨直擊 (約 ${hoursToRain} 小時內)`;
+    } else if (diff3h <= -1.5) {
+      rainProb = Math.min(98, Math.round(80 + Math.abs(diff3h) * 10));
+      const dropRatePerHour = Math.abs(diff3h) / 3;
+      hoursToRain = (2.2 / dropRatePerHour).toFixed(1);
+      statusText = `🚨 降雨率 ${rainProb}% | 大雨狂風雷暴逼近 (約 ${hoursToRain} 小時內抵達)`;
+    } else if (diff3h <= -0.5) {
+      rainProb = Math.round(80 + Math.abs(diff3h) * 10);
+      statusText = `⚠️ 降雨率 ${rainProb}% | 天氣轉趨不穩，局部驟雨`;
+    } else if (diff3h >= 0.5) {
+      rainProb = Math.max(5, Math.round(30 - diff3h * 10));
+      statusText = `☀️ 降雨率 ${rainProb}% | 氣壓回升，天氣逐步好轉`;
+    } else {
+      rainProb = 30;
+      statusText = `⛅ 降雨率 ${rainProb}% | 氣壓平穩，短暫晴朗/陰天`;
+    }
+
+    return { zIndex, statusText };
+  }
+
+  // WMO Code 0-8 邏輯
   function calculateWMOCode(p0, p1_5, p3) {
     const diffTotal = p0 - p3;
     const diffFirstHalf = p1_5 - p3;
@@ -316,6 +389,7 @@
     }
   }
 
+  // 📍 3. 載入 Firebase 數據
   async function loadData() {
     try {
       document.getElementById('status-note').innerText = "LOADING DATA...";
@@ -329,6 +403,10 @@
       snapshot.forEach(doc => cachedDocs.push(doc.data()));
       cachedDocs.reverse();
 
+      // ✂️ 嚴格限制：只保留最近 84 小時 (3.5天) 內的數據
+      const eightyFourHoursAgo = Date.now() - (84 * 60 * 60 * 1000);
+      cachedDocs = cachedDocs.filter(d => d.timestamp >= eightyFourHoursAgo);
+
       if (cachedDocs.length > 0) {
         const latestP = cachedDocs[cachedDocs.length - 1].pressure;
         document.getElementById('curr-p').innerText = Number(latestP).toFixed(1);
@@ -339,33 +417,39 @@
         const p3hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap3h].pressure;
         const p1_5hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap1_5h].pressure;
 
-        const diff3h = (latestP - p3hAgo).toFixed(1);
+        const diff3h = parseFloat((latestP - p3hAgo).toFixed(1));
         const sign = diff3h > 0 ? "+" : "";
         document.getElementById('trend-3h').innerText = `${sign}${diff3h} hPa`;
 
+        // 🤖 執行演算法預測模型
+        const predResult = runPredictionModel(latestP, diff3h);
+        document.getElementById('z-index-val').innerText = `Z-INDEX: ${predResult.zIndex}`;
+        document.getElementById('pred-text').innerText = predResult.statusText;
+
+        // 計算 WMO Code
         const wmoResult = calculateWMOCode(latestP, p1_5hAgo, p3hAgo);
         document.getElementById('wmo-icon').innerText = wmoResult.symbol;
         document.getElementById('wmo-code-str').innerText = `Code ${wmoResult.code}`;
         document.getElementById('wmo-desc-1').innerText = wmoResult.title;
         document.getElementById('wmo-desc-2').innerText = wmoResult.desc;
 
-        const dropVal = parseFloat(diff3h);
+        // 表格高亮
         document.getElementById('row-yellow').classList.remove('active-alert');
         document.getElementById('row-orange').classList.remove('active-alert');
         document.getElementById('row-red').classList.remove('active-alert');
 
-        if (dropVal <= -3.0) {
+        if (diff3h <= -3.0) {
           document.getElementById('row-red').classList.add('active-alert');
-        } else if (dropVal <= -1.5) {
+        } else if (diff3h <= -1.5) {
           document.getElementById('row-orange').classList.add('active-alert');
-        } else if (dropVal <= -0.5) {
+        } else if (diff3h <= -0.5) {
           document.getElementById('row-yellow').classList.add('active-alert');
         }
 
         renderChart();
         document.getElementById('status-note').innerText = `SYNCED WITH FIREBASE (${cachedDocs.length} RECS)`;
       } else {
-        document.getElementById('status-note').innerText = "NO DATA FOUND IN FIREBASE COLLECTION";
+        document.getElementById('status-note').innerText = "NO DATA FOUND IN LAST 84 HOURS";
       }
 
     } catch (err) {
