@@ -68,7 +68,7 @@
     .pressure-value { font-size: 3.1rem; font-weight: 900; line-height: 1; }
     .unit { font-size: 1.05rem; font-weight: normal; }
 
-    /* 新增：溫濕度與露點三欄狀態條 */
+    /* 溫濕度與露點三欄狀態條 */
     .env-strip {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -236,7 +236,7 @@
     </div>
   </div>
 
-  <!-- 新增：溫度 / 濕度 / 露點 狀態列 -->
+  <!-- 溫度 / 濕度 / 露點 狀態列 -->
   <div class="env-strip">
     <div class="env-cell">
       <div class="env-label">TEMP 氣溫</div>
@@ -256,7 +256,7 @@
   <div class="prediction-card">
     <div class="pred-header">
       <span>🤖 MULTI-SENSOR PREDICTION</span>
-      <span id="z-index-val">Z: -- | ΔTd: --</span>
+      <span id="z-index-val">Z: -- | T-Td: --</span>
     </div>
     <div id="pred-text" class="pred-body">
       CALCULATING WEATHER MODEL...
@@ -322,7 +322,7 @@
 </div>
 
 <script>
-  // 📍 1. 貼上你的 Firebase Config
+  // 📍 1. 貼上你原本 index.html 內的 Firebase Config（保留 projectId: "hko-barometer" 等欄位）
   const firebaseConfig = {
   apiKey: "AIzaSyDQcBiD_v-ka5fGwU_8aEDgI6DF5rj1Lmo",
   authDomain: "hko-barometer.firebaseapp.com",
