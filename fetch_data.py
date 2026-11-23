@@ -1,71 +1,61 @@
-import requests
-import json
-import os
+import math
+import time
 from datetime import datetime, timezone, timedelta
+import requests
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# 香港京士柏座標，精確請求 pressure_msl (海平面氣壓)
-URL_OPEN_METEO = "https://api.open-meteo.com/v1/forecast?latitude=22.3119&longitude=114.1708&current=pressure_msl"
+# 1. 初始化 Firebase (沿用你原本的憑證設定)
+# cred = credentials.Certificate("serviceAccountKey.json")
+# firebase_admin.initialize_app(cred)
+db = firestore.client()
 
-def fetch_pressure():
-    print("🌐 正在發送請求至 Open-Meteo API...")
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(URL_OPEN_METEO, headers=headers, timeout=15)
-        print(f"📡 API 回應狀態碼: {res.status_code}")
-        
-        if res.status_code == 200:
-            data = res.json()
-            p = data.get('current', {}).get('pressure_msl')
-            if p is not None:
-                print(f"✅ 成功擷取到香港海平面氣壓: {p} hPa")
-                return float(p)
-            else:
-                print("❌ JSON 結構中未找到 pressure_msl 欄位")
-        else:
-            print(f"❌ API 請求失敗，內容: {res.text[:200]}")
-    except Exception as e:
-        print(f"❌ 發生 Exception 異常: {e}")
+# 2. 計算露點溫度 (Magnus-Tetens Formula)
+def calculate_dew_point(temp_c, rh):
+    a = 17.625
+    b = 243.04
+    alpha = math.log(rh / 100.0) + (a * temp_c) / (b + temp_c)
+    dew_point = (b * alpha) / (a - alpha)
+    return round(dew_point, 1)
 
-    return None
+# 3. 從 Open-Meteo 獲取香港即時海平面氣壓、氣溫 (2m) 與相對濕度 (2m)
+def fetch_hk_weather():
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=22.3193&longitude=114.1694"
+        "&current=pressure_msl,temperature_2m,relative_humidity_2m"
+        "&timezone=Asia%2FHong_Kong"
+    )
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    current = resp.json()["current"]
 
-def save_to_firestore(pressure):
-    raw_config = os.environ.get('FIREBASE_CONFIG')
-    if not raw_config:
-        print("❌ 錯誤：找不到 FIREBASE_CONFIG 環境變數，請檢查 GitHub Secrets！")
-        exit(1)
-        
-    try:
-        firebase_config = json.loads(raw_config)
-        project_id = firebase_config.get('projectId')
-    except Exception as e:
-        print(f"❌ 錯誤：FIREBASE_CONFIG JSON 解析失敗: {e}")
-        exit(1)
+    pressure = round(float(current["pressure_msl"]), 2)
+    temp = round(float(current["temperature_2m"]), 1)
+    humidity = round(float(current["relative_humidity_2m"]), 0)
+    dew_point = calculate_dew_point(temp, humidity)
 
-    hkt = timezone(timedelta(hours=8))
-    now = datetime.now(hkt)
-    timestamp_ms = int(now.timestamp() * 1000)
-    time_str = now.strftime("%m/%d %H:%M")
+    return pressure, temp, humidity, dew_point
 
-    url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/barometer_history"
-    payload = {
-        "fields": {
-            "timestamp": {"integerValue": timestamp_ms},
-            "timeStr": {"stringValue": time_str},
-            "pressure": {"doubleValue": pressure}
-        }
+def main():
+    pressure, temp, humidity, dew_point = fetch_hk_weather()
+
+    hk_tz = timezone(timedelta(hours=8))
+    now_hk = datetime.now(hk_tz)
+    timestamp_ms = int(time.time() * 1000)
+    time_str = now_hk.strftime("%m/%d %H:%M")
+
+    doc_data = {
+        "pressure": pressure,
+        "temp": temp,
+        "humidity": humidity,
+        "dewPoint": dew_point,
+        "timestamp": timestamp_ms,
+        "timeStr": time_str
     }
-    
-    response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        print(f"🎉 [{time_str}] 成功寫入氣壓: {pressure} hPa 到 Firebase！")
-    else:
-        print(f"❌ 寫入 Firestore 失敗 (HTTP {response.status_code}): {response.text}")
-        exit(1)
+
+    db.collection("barometer_history").add(doc_data)
+    print(f"[{time_str}] Saved -> P: {pressure} hPa | T: {temp}°C | RH: {humidity}% | Td: {dew_point}°C")
 
 if __name__ == "__main__":
-    p = fetch_pressure()
-    if p is not None:
-        save_to_firestore(p)
-    else:
-        print("❌ 無法獲取任何有效的氣壓值，終止本次寫入。")
-        exit(1)
+    main()
