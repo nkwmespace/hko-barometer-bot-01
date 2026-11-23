@@ -1,3 +1,5 @@
+import os
+import json
 import math
 import time
 from datetime import datetime, timezone, timedelta
@@ -5,10 +7,49 @@ import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# 1. 初始化 Firebase (沿用你原本的憑證設定)
-# cred = credentials.Certificate("serviceAccountKey.json")
-# firebase_admin.initialize_app(cred)
-db = firestore.client()
+# 1. 自動尋找並初始化 Firebase 憑證
+def init_firebase():
+    if firebase_admin._apps:
+        return firestore.client()
+
+    # 常見的 GitHub Secrets 環境變數名稱
+    possible_env_keys = [
+        "FIREBASE_CREDENTIALS",
+        "FIREBASE_SERVICE_ACCOUNT",
+        "FIREBASE_KEY",
+        "FIREBASE_CONFIG",
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+    ]
+
+    cred_json_str = None
+    for key in possible_env_keys:
+        val = os.environ.get(key)
+        if val and val.strip().startswith("{"):
+            cred_json_str = val.strip()
+            break
+
+    # 若上述變數未命中，自動掃描所有包含 "service_account" 的環境變數
+    if not cred_json_str:
+        for k, v in os.environ.items():
+            if '"type": "service_account"' in v or '"type":"service_account"' in v:
+                cred_json_str = v.strip()
+                break
+
+    if cred_json_str:
+        cred_dict = json.loads(cred_json_str)
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+    elif os.path.exists("serviceAccountKey.json"):
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred)
+    else:
+        raise RuntimeError(
+            "找不到 Firebase Service Account JSON！請檢查 cron.yaml 的 env 是否已傳入 secrets。"
+        )
+
+    return firestore.client()
+
+db = init_firebase()
 
 # 2. 計算露點溫度 (Magnus-Tetens Formula)
 def calculate_dew_point(temp_c, rh):
