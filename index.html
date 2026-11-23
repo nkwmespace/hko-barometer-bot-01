@@ -62,13 +62,43 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
-    .pressure-value { font-size: 3.2rem; font-weight: 900; line-height: 1; }
-    .unit { font-size: 1.1rem; font-weight: normal; }
+    .pressure-value { font-size: 3.1rem; font-weight: 900; line-height: 1; }
+    .unit { font-size: 1.05rem; font-weight: normal; }
 
-    /* 新增：智能預測卡片 */
+    /* 新增：溫濕度與露點三欄狀態條 */
+    .env-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 2px solid #1a1a1a;
+      border-radius: 6px;
+      background: #ffffff;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .env-cell {
+      padding: 6px 4px;
+      border-right: 1.5px solid #1a1a1a;
+    }
+    .env-cell:last-child { border-right: none; }
+
+    .env-label {
+      font-size: 0.65rem;
+      font-weight: bold;
+      color: #555;
+      letter-spacing: 0.5px;
+    }
+
+    .env-val {
+      font-size: 1.05rem;
+      font-weight: 900;
+      margin-top: 2px;
+    }
+
+    /* 智能預測卡片 */
     .prediction-card {
       border: 2.5px solid #1a1a1a;
       border-radius: 6px;
@@ -82,7 +112,7 @@
     .pred-header {
       display: flex;
       justify-content: space-between;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: bold;
       border-bottom: 1px dashed #777;
       padding-bottom: 4px;
@@ -90,10 +120,10 @@
     }
 
     .pred-body {
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       font-weight: bold;
-      letter-spacing: 0.5px;
-      line-height: 1.3;
+      letter-spacing: 0.4px;
+      line-height: 1.35;
     }
 
     /* WMO 氣壓趨勢卡片 */
@@ -125,7 +155,7 @@
     .chart-container {
       position: relative;
       width: 100%;
-      height: 200px;
+      height: 195px;
       border: 2px solid #1a1a1a;
       border-radius: 6px;
       padding: 6px;
@@ -202,15 +232,31 @@
     </div>
     <div style="text-align: right;">
       <div style="font-size: 0.75rem; font-weight: bold;">3H ΔP 變率</div>
-      <div id="trend-3h" style="font-size: 1.5rem; font-weight: 900;">--- hPa</div>
+      <div id="trend-3h" style="font-size: 1.45rem; font-weight: 900;">--- hPa</div>
     </div>
   </div>
 
-  <!-- 🤖 新增：Zambretti & 演算法智能預測卡片 -->
+  <!-- 新增：溫度 / 濕度 / 露點 狀態列 -->
+  <div class="env-strip">
+    <div class="env-cell">
+      <div class="env-label">TEMP 氣溫</div>
+      <div id="curr-t" class="env-val">--.-°C</div>
+    </div>
+    <div class="env-cell">
+      <div class="env-label">RH 濕度</div>
+      <div id="curr-rh" class="env-val">--%</div>
+    </div>
+    <div class="env-cell">
+      <div class="env-label">DEW 露點</div>
+      <div id="curr-td" class="env-val">--.-°C</div>
+    </div>
+  </div>
+
+  <!-- 智能預測卡片 -->
   <div class="prediction-card">
     <div class="pred-header">
-      <span>🤖 SMART PREDICTION</span>
-      <span id="z-index-val">Z-INDEX: --</span>
+      <span>🤖 MULTI-SENSOR PREDICTION</span>
+      <span id="z-index-val">Z: -- | ΔTd: --</span>
     </div>
     <div id="pred-text" class="pred-body">
       CALCULATING WEATHER MODEL...
@@ -333,36 +379,81 @@
     }
   }
 
-  // 📍 2. 氣壓演算法：Zambretti 指數 & 倒數時間公式
-  function runPredictionModel(currentP, diff3h) {
-    // Zambretti Formula (Z = 130 - 0.12*P - 15*ΔP)
+  // 前端備用露點計算（若資料庫有 temp & humidity 但未存 dewPoint 時自動補算）
+  function calcDewPoint(temp, rh) {
+    const a = 17.625;
+    const b = 243.04;
+    const alpha = Math.log(rh / 100.0) + (a * temp) / (b + temp);
+    return parseFloat(((b * alpha) / (a - alpha)).toFixed(1));
+  }
+
+  // 📍 2. 氣壓 + 溫濕度露點 複合預報模型
+  function runPredictionModel(currentP, diff3h, temp, rh, dewPoint) {
     const zIndex = (130 - (0.12 * currentP) - (15 * diff3h)).toFixed(1);
-    
+    const hasEnv = (temp !== null && rh !== null && dewPoint !== null);
+    const spread = hasEnv ? parseFloat((temp - dewPoint).toFixed(1)) : null; // 溫度露點差 T - Td
+    const headerMeta = hasEnv ? `Z: ${zIndex} | T-Td: ${spread}°C` : `Z-INDEX: ${zIndex}`;
+
     let rainProb = 0;
-    let hoursToRain = 0;
     let statusText = "";
 
+    // 情境 A：氣壓急跌 (強對流 / 低壓槽 / 颱風逼近)
     if (diff3h <= -3.0) {
       rainProb = 100;
-      hoursToRain = 1.5;
-      statusText = `🌪️ 降雨率 ${rainProb}% | 強對流/特大暴雨直擊 (約 ${hoursToRain} 小時內)`;
+      statusText = `🌪️ 降雨率 ${rainProb}% | 強對流/特大暴雨直擊 (約 1.5 小時內)`;
     } else if (diff3h <= -1.5) {
       rainProb = Math.min(98, Math.round(80 + Math.abs(diff3h) * 10));
-      const dropRatePerHour = Math.abs(diff3h) / 3;
-      hoursToRain = (2.2 / dropRatePerHour).toFixed(1);
-      statusText = `🚨 降雨率 ${rainProb}% | 大雨狂風雷暴逼近 (約 ${hoursToRain} 小時內抵達)`;
-    } else if (diff3h <= -0.5) {
+      const hoursToRain = (2.2 / (Math.abs(diff3h) / 3)).toFixed(1);
+      if (hasEnv && spread <= 2.0) {
+        statusText = `🚨 水汽飽和 (RH ${rh}%) | 大雨雷暴約 ${hoursToRain} 小時內抵達`;
+      } else {
+        statusText = `🚨 降雨率 ${rainProb}% | 大雨狂風雷暴逼近 (約 ${hoursToRain} 小時內)`;
+      }
+    } 
+    // 情境 B：酷熱極低壓陷阱 (例如颱風外圍下沉氣流)
+    else if (currentP < 1002 && hasEnv && temp >= 32 && spread >= 6.0) {
+      rainProb = 35;
+      statusText = `🔥 熱帶系統外圍下沉 | 酷熱晴朗，慎防午後熱對流雷暴`;
+    }
+    // 情境 C：氣壓溫和下跌
+    else if (diff3h <= -0.5) {
       rainProb = Math.round(80 + Math.abs(diff3h) * 10);
-      statusText = `⚠️ 降雨率 ${rainProb}% | 天氣轉趨不穩，局部驟雨`;
-    } else if (diff3h >= 0.5) {
-      rainProb = Math.max(5, Math.round(30 - diff3h * 10));
-      statusText = `☀️ 降雨率 ${rainProb}% | 氣壓回升，天氣逐步好轉`;
-    } else {
-      rainProb = 30;
-      statusText = `⛅ 降雨率 ${rainProb}% | 氣壓平穩，短暫晴朗/陰天`;
+      if (hasEnv && spread <= 1.5) {
+        statusText = `🌫️ 水汽近飽和 (T-Td ${spread}°C) | 有薄霧或微雨，帶備雨具`;
+      } else {
+        statusText = `⚠️ 降雨率 ${rainProb}% | 氣壓下滑，天氣轉趨不穩`;
+      }
+    } 
+    // 情境 D：氣壓顯著上升 / 高壓支配 (分辨「乾冷」與「濕冷」)
+    else if (diff3h >= 0.5 || currentP >= 1021) {
+      if (hasEnv) {
+        if (rh <= 60 || spread >= 7.0) {
+          rainProb = 5;
+          statusText = `☀️ 乾冷高壓支配 (RH ${rh}%) | 天晴乾燥，入夜輻射冷卻顯著`;
+        } else if (rh >= 85 && temp <= 18) {
+          rainProb = 45;
+          statusText = `🌧️ 濕冷季候風 (RH ${rh}%) | 天陰有微雨，體感寒冷注意保暖`;
+        } else {
+          rainProb = Math.max(5, Math.round(25 - diff3h * 10));
+          statusText = `🌤️ 氣壓回升 (RH ${rh}%) | 天氣逐步好轉，清爽舒適`;
+        }
+      } else {
+        rainProb = Math.max(5, Math.round(30 - diff3h * 10));
+        statusText = `☀️ 降雨率 ${rainProb}% | 氣壓回升，天氣逐步好轉`;
+      }
+    } 
+    // 情境 E：氣壓平穩
+    else {
+      if (hasEnv && spread <= 1.2) {
+        rainProb = 40;
+        statusText = `🌫️ 氣壓平穩但極潮濕 (RH ${rh}%) | 沿岸有薄霧或零星微雨`;
+      } else {
+        rainProb = 25;
+        statusText = `⛅ 降雨率 ${rainProb}% | 氣壓平穩，短暫晴朗或多雲`;
+      }
     }
 
-    return { zIndex, statusText };
+    return { headerMeta, statusText };
   }
 
   // WMO Code 0-8 邏輯
@@ -403,27 +494,39 @@
       snapshot.forEach(doc => cachedDocs.push(doc.data()));
       cachedDocs.reverse();
 
-      // ✂️ 嚴格限制：只保留最近 84 小時 (3.5天) 內的數據
       const eightyFourHoursAgo = Date.now() - (84 * 60 * 60 * 1000);
       cachedDocs = cachedDocs.filter(d => d.timestamp >= eightyFourHoursAgo);
 
       if (cachedDocs.length > 0) {
-        const latestP = cachedDocs[cachedDocs.length - 1].pressure;
-        document.getElementById('curr-p').innerText = Number(latestP).toFixed(1);
+        const latestDoc = cachedDocs[cachedDocs.length - 1];
+        const latestP = Number(latestDoc.pressure);
+        document.getElementById('curr-p').innerText = latestP.toFixed(1);
+
+        // 讀取最新溫濕度與露點（向下相容舊資料）
+        const temp = (latestDoc.temp !== undefined && latestDoc.temp !== null) ? Number(latestDoc.temp) : null;
+        const rh = (latestDoc.humidity !== undefined && latestDoc.humidity !== null) ? Number(latestDoc.humidity) : null;
+        let dewPoint = (latestDoc.dewPoint !== undefined && latestDoc.dewPoint !== null) ? Number(latestDoc.dewPoint) : null;
+        if (dewPoint === null && temp !== null && rh !== null) {
+          dewPoint = calcDewPoint(temp, rh);
+        }
+
+        document.getElementById('curr-t').innerText = temp !== null ? `${temp.toFixed(1)}°C` : '--.-°C';
+        document.getElementById('curr-rh').innerText = rh !== null ? `${Math.round(rh)}%` : '--%';
+        document.getElementById('curr-td').innerText = dewPoint !== null ? `${dewPoint.toFixed(1)}°C` : '--.-°C';
 
         const sampleGap3h = Math.min(12, cachedDocs.length - 1);
         const sampleGap1_5h = Math.min(6, cachedDocs.length - 1);
 
-        const p3hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap3h].pressure;
-        const p1_5hAgo = cachedDocs[cachedDocs.length - 1 - sampleGap1_5h].pressure;
+        const p3hAgo = Number(cachedDocs[cachedDocs.length - 1 - sampleGap3h].pressure);
+        const p1_5hAgo = Number(cachedDocs[cachedDocs.length - 1 - sampleGap1_5h].pressure);
 
         const diff3h = parseFloat((latestP - p3hAgo).toFixed(1));
         const sign = diff3h > 0 ? "+" : "";
         document.getElementById('trend-3h').innerText = `${sign}${diff3h} hPa`;
 
-        // 🤖 執行演算法預測模型
-        const predResult = runPredictionModel(latestP, diff3h);
-        document.getElementById('z-index-val').innerText = `Z-INDEX: ${predResult.zIndex}`;
+        // 執行複合預報模型
+        const predResult = runPredictionModel(latestP, diff3h, temp, rh, dewPoint);
+        document.getElementById('z-index-val').innerText = predResult.headerMeta;
         document.getElementById('pred-text').innerText = predResult.statusText;
 
         // 計算 WMO Code
@@ -479,7 +582,7 @@
       chart.options.scales.y.suggestedMax = undefined;
     } else {
       chart.config.type = 'bar';
-      const latestP = cachedDocs[cachedDocs.length - 1].pressure;
+      const latestP = Number(cachedDocs[cachedDocs.length - 1].pressure);
       const timeCheckpoints = [-24, -12, -6, -3, -1, 0];
       const trendData = [0, 0, 0, 0, 0, 0];
 
@@ -499,7 +602,7 @@
         }
 
         if (closestIndex !== -1 && minDiff < (45 * 60 * 1000)) {
-          trendData[i] = (cachedDocs[closestIndex].pressure - latestP).toFixed(1);
+          trendData[i] = (Number(cachedDocs[closestIndex].pressure) - latestP).toFixed(1);
         }
       }
 
