@@ -4,52 +4,21 @@ import math
 import time
 from datetime import datetime, timezone, timedelta
 import requests
-import firebase_admin
-from firebase_admin import credentials, firestore
 
-# 1. 自動尋找並初始化 Firebase 憑證
-def init_firebase():
-    if firebase_admin._apps:
-        return firestore.client()
+# 📍 1. 填入你的 Firebase Project ID（從截圖看應為 "hko-barometer"）
+FIREBASE_PROJECT_ID = "hko-barometer"
 
-    # 常見的 GitHub Secrets 環境變數名稱
-    possible_env_keys = [
-        "FIREBASE_CREDENTIALS",
-        "FIREBASE_SERVICE_ACCOUNT",
-        "FIREBASE_KEY",
-        "FIREBASE_CONFIG",
-        "GOOGLE_APPLICATION_CREDENTIALS_JSON"
-    ]
-
-    cred_json_str = None
-    for key in possible_env_keys:
-        val = os.environ.get(key)
-        if val and val.strip().startswith("{"):
-            cred_json_str = val.strip()
-            break
-
-    # 若上述變數未命中，自動掃描所有包含 "service_account" 的環境變數
-    if not cred_json_str:
-        for k, v in os.environ.items():
-            if '"type": "service_account"' in v or '"type":"service_account"' in v:
-                cred_json_str = v.strip()
+# 若環境變數裡有存 firebaseConfig JSON，會自動覆蓋讀取 projectId
+for key in ["FIREBASE_CONFIG", "FIREBASE_CREDENTIALS", "FIREBASE_SERVICE_ACCOUNT", "FIREBASE_KEY"]:
+    val = os.environ.get(key)
+    if val and "projectId" in val:
+        try:
+            cfg = json.loads(val.strip())
+            if cfg.get("projectId"):
+                FIREBASE_PROJECT_ID = cfg["projectId"]
                 break
-
-    if cred_json_str:
-        cred_dict = json.loads(cred_json_str)
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
-    elif os.path.exists("serviceAccountKey.json"):
-        cred = credentials.Certificate("serviceAccountKey.json")
-        firebase_admin.initialize_app(cred)
-    else:
-        raise RuntimeError(
-            "找不到 Firebase Service Account JSON！請檢查 cron.yaml 的 env 是否已傳入 secrets。"
-        )
-
-    return firestore.client()
-
-db = init_firebase()
+        except Exception:
+            pass
 
 # 2. 計算露點溫度 (Magnus-Tetens Formula)
 def calculate_dew_point(temp_c, rh):
@@ -78,6 +47,28 @@ def fetch_hk_weather():
 
     return pressure, temp, humidity, dew_point
 
+# 4. 透過 Firestore REST API 直接寫入數據
+def save_to_firestore(pressure, temp, humidity, dew_point, timestamp_ms, time_str):
+    firestore_url = (
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}"
+        f"/databases/(default)/documents/barometer_history"
+    )
+
+    payload = {
+        "fields": {
+            "pressure": {"doubleValue": float(pressure)},
+            "temp": {"doubleValue": float(temp)},
+            "humidity": {"integerValue": str(int(humidity))},
+            "dewPoint": {"doubleValue": float(dew_point)},
+            "timestamp": {"integerValue": str(int(timestamp_ms))},
+            "timeStr": {"stringValue": time_str}
+        }
+    }
+
+    resp = requests.post(firestore_url, json=payload, timeout=15)
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"Firestore 寫入失敗 ({resp.status_code}): {resp.text}")
+
 def main():
     pressure, temp, humidity, dew_point = fetch_hk_weather()
 
@@ -86,16 +77,7 @@ def main():
     timestamp_ms = int(time.time() * 1000)
     time_str = now_hk.strftime("%m/%d %H:%M")
 
-    doc_data = {
-        "pressure": pressure,
-        "temp": temp,
-        "humidity": humidity,
-        "dewPoint": dew_point,
-        "timestamp": timestamp_ms,
-        "timeStr": time_str
-    }
-
-    db.collection("barometer_history").add(doc_data)
+    save_to_firestore(pressure, temp, humidity, dew_point, timestamp_ms, time_str)
     print(f"[{time_str}] Saved -> P: {pressure} hPa | T: {temp}°C | RH: {humidity}% | Td: {dew_point}°C")
 
 if __name__ == "__main__":
